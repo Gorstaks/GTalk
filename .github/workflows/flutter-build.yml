@@ -1,0 +1,137 @@
+name: Build GTalk Flutter
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTalk-Android
+          path: flutter/build/app/outputs/flutter-apk/app-release.apk
+
+  build-ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r GTalk-iOS-Flutter.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTalk-iOS-Flutter
+          path: flutter/GTalk-iOS-Flutter.ipa
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Bundle VC++ Runtime
+        run: |
+          copy "C:\Windows\System32\msvcp140.dll" "build\windows\x64\runner\Release\"
+          copy "C:\Windows\System32\vcruntime140.dll" "build\windows\x64\runner\Release\"
+          copy "C:\Windows\System32\vcruntime140_1.dll" "build\windows\x64\runner\Release\"
+      - name: Compile Inno Setup Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows_setup.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTalk-Windows-Flutter
+          path: flutter/build/GTalk-Flutter-Setup.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: Package Tarball
+        run: |
+          tar -czf GTalk-Linux-Flutter.tar.gz -C build/linux/x64/release/bundle .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTalk-Linux-Flutter
+          path: flutter/GTalk-Linux-Flutter.tar.gz
+
+  build-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Create DMG
+        run: |
+          mkdir dmg_contents
+          cp -r build/macos/Build/Products/Release/gtalk.app dmg_contents/
+          hdiutil create -volname "GTalk" -srcfolder dmg_contents -ov -format UDZO GTalk-macOS-Flutter.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTalk-macOS-Flutter
+          path: flutter/GTalk-macOS-Flutter.dmg
+
+  release:
+    needs: [build-android, build-ios, build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: List artifacts
+        run: find . -type f | head -20
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            GTalk-Android/app-release.apk
+            GTalk-iOS-Flutter/GTalk-iOS-Flutter.ipa
+            GTalk-Windows-Flutter/GTalk-Flutter-Setup.exe
+            GTalk-Linux-Flutter/GTalk-Linux-Flutter.tar.gz
+            GTalk-macOS-Flutter/GTalk-macOS-Flutter.dmg
